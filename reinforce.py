@@ -4,12 +4,10 @@ REINFORCE (or Monte Carlo Policy Gradient) is a model-free, policy-gradient Rein
 Learning algorithm.
 """
 import argparse
-from datetime import datetime
+from pathlib import Path
 import itertools
-from tqdm import tqdm
 from typing import Dict, List, Tuple
 
-import cv2
 import gymnasium as gym
 from gymnasium import Env
 import matplotlib.pyplot as plt
@@ -20,11 +18,15 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.optim import Adam, Optimizer
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from config import settings
 from logger import get_logger
+from utils import get_datetime_str, generate_video
 
-logger = get_logger('reinforce')
+NAME = 'reinforce'
+
+logger = get_logger(NAME)
 
 # for smoothing out the data that displayed data
 ROLLING_AVERAGE_LENGTH = 10
@@ -128,49 +130,6 @@ def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[to
     optimizer.step()
 
 
-def generate_video(env_spec_id: str, policy_net: PolicyNetwork, episode: int) -> None:
-    """
-    Generate an mp4 video for the given policy, and write it to file. This is a fun way
-    to see how the algoirthm is doing.
-    """
-
-    # render episodes based on the trained policy
-    env = gym.make(env_spec_id, render_mode='rgb_array')
-    env.metadata['render_fps'] = 120
-
-    # record the frames so we can create a video
-    frames = []
-    total_reward = 0
-
-    # initialize/reset the environment and get it's state
-    state, _ = env.reset()
-    while True:
-
-        action, _ = policy_net.get_action_log_prob(state)
-        new_state, reward, terminated, truncated, _ = env.step(action)
-        frames.append(env.render())
-        total_reward += reward
-
-        if terminated or truncated:
-            break
-
-        state = new_state
-
-    np_frames = np.array(frames)
-    filename = f'output/reinforce_{env.spec.id}_{episode + 1}_episodes_{int(total_reward)}_reward.mp4'
-    logger.info(f'Generating video at {filename=}...')
-
-    fps = 30
-    height = np_frames.shape[2]
-    width = np_frames.shape[1]
-
-    out = cv2.VideoWriter(filename, cv2.VideoWriter_fourcc(*'mp4v'), fps, (height, width))
-    for i in range(np_frames.shape[0]):
-        data = np_frames[i, :, :, :]
-        out.write(data)
-
-    out.release()
-
 # TODO: Refactor this to make it useful or just remove it
 def plot_data(num_steps: List[int], avg_steps: List[float],
               episode: int, env: Env, total_reward: float) -> None:
@@ -184,7 +143,8 @@ def plot_data(num_steps: List[int], avg_steps: List[float],
     plt.plot(avg_steps)
     plt.xlabel('Episode')
     plt.xlabel('Steps')
-    plt.savefig(f'output/reinforce_{env.spec.id}_{episode + 1}_episodes_{int(total_reward)}_reward.png')
+    Path(f'output/images/{NAME}').mkdir(parents=True, exist_ok=True)
+    plt.savefig(f'output/images/{NAME}/{env.spec.id}_{get_datetime_str()}_{episode + 1}_episodes_{int(total_reward)}_reward.png')
     plt.clf()
 
 
@@ -201,12 +161,13 @@ def run(**kwargs: Dict) -> None:
     max_lookahead = kwargs['max_lookahead']
     num_videos = kwargs['num_videos']
 
-    # initialize tensorboard
-    tb_id = f"tb/{env_spec_id}_{num_episodes}_{inner_dims}_{lr}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    tb_logger = SummaryWriter(tb_id, flush_secs=5)
-
     # intialize the gym environment that we are using
     env = gym.make(env_spec_id)
+
+    # initialize tensorboard
+    Path(f'output/tb/{NAME}').mkdir(parents=True, exist_ok=True)
+    tb_id = f"output/tb/{NAME}/{env.spec.id}_{get_datetime_str()}_{num_episodes}_{inner_dims}_{lr}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{get_datetime_str()}"
+    tb_logger = SummaryWriter(tb_id, flush_secs=5)
 
     # get number of actions from gym action space
     n_actions = env.action_space.n
@@ -269,7 +230,7 @@ def run(**kwargs: Dict) -> None:
 
                 # from time to time, generate a video
                 if (episode + 1) % (num_episodes//num_videos) == 0:
-                    generate_video(env.spec.id, policy_net, episode)
+                    generate_video(env.spec.id, policy_net.get_action_log_prob, episode, NAME)
 
                 break
 

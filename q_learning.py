@@ -2,7 +2,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Tuple
 
-import cv2
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,11 +9,13 @@ import pandas as pd
 from tqdm import tqdm
 
 from logger import get_logger
-from policy import GreedyPolicy, EGreedyPolicy, Policy
+from policy import GreedyPolicy, EGreedyPolicy
+from utils import get_datetime_str, generate_video
 
 INFINITY = 10e10
+NAME = 'q_learning'
 
-logger = get_logger('q_learning')
+logger = get_logger(NAME)
 
 def q_learning(
         env: gym.Env,
@@ -88,58 +89,8 @@ def q_learning(
         # if render video is true, generate a video from time to time with the
         # currrent policy
         if render_video & ((episode + 1) % (num_episodes//num_videos) == 0):
-            generate_video(env.spec.id, pi, episode)
+            generate_video(env.spec.id, pi.action, episode, NAME)
     return q, episode_rewards, episode_lengths
-
-
-def generate_video(
-    env_spec_id: str,
-    policy: Policy,
-    episode: int,
-    max_frames: int = 500,
-    fps = 10
-) -> None:
-    """
-    Generate an mp4 video for the given policy, and write it to file. This is a fun way
-    to see how the algoirthm is doing.
-    """
-
-    # render episodes based on the trained policy
-    env = gym.make(env_spec_id, render_mode='rgb_array')
-    env.metadata['render_fps'] = fps
-
-    # record the frames so we can create a video
-    frames = []
-    total_reward = 0
-
-    # initialize/reset the environment and get it's state
-    state, _ = env.reset()
-    for i in range(max_frames):
-
-        action = policy.action(state)
-        new_state, reward, terminated, truncated, _ = env.step(action)
-        frames.append(env.render())
-        total_reward += reward
-
-        if terminated or truncated or i >= max_frames:
-            break
-
-        state = new_state
-
-    np_frames = np.array(frames)
-    Path("output").mkdir(parents=True, exist_ok=True)
-    filename = f'output/q_learning_{env.spec.id}_{episode + 1}_episodes.mp4'
-    logger.info(f'Generating video at {filename=}...')
-
-    height = np_frames.shape[2]
-    width = np_frames.shape[1]
-
-    out = cv2.VideoWriter(filename, cv2.VideoWriter_fourcc(*'mp4v'), fps, (height, width))
-    for i in range(np_frames.shape[0]):
-        data = np_frames[i, :, :, :]
-        out.write(data)
-
-    out.release()
 
 
 def render_figure(data: Dict, window: int, label: str, filename: str):
@@ -162,8 +113,8 @@ def render_figure(data: Dict, window: int, label: str, filename: str):
     axes[1].legend(loc='upper right')
     axes[1].title.set_text(f"Episode Length Over Time ({window} step rolling average)")
 
-    Path("output").mkdir(parents=True, exist_ok=True)
-    filename = f'output/{filename}'
+    Path(f'output/images/{NAME}').mkdir(parents=True, exist_ok=True)
+    filename = f'output/images/{NAME}/{env.spec.id}_{get_datetime_str()}_{filename}'
     plt.savefig(filename)
 
 
@@ -173,18 +124,19 @@ def render_q(q):
     v_spacer = '-------------------------------------------------------------------------'
     h_spacer = '|'
     s : str = h_spacer
+
+    logger.info('Optimal state/action space for the given Q:')
     for cell in range(q.shape[0]):
-        row = cell // 12
         col = cell % 12
         s += str(lookup[np.argmax(q[cell])]).rjust(5)
         if col == 11:
-            print(v_spacer)
-            print(s + h_spacer)
+            logger.info(v_spacer)
+            logger.info(s + h_spacer)
             s = h_spacer
         else:
             s += h_spacer
 
-    print(v_spacer)
+    logger.info(v_spacer)
 
 
 if __name__ == '__main__':
@@ -229,7 +181,7 @@ if __name__ == '__main__':
 
     # we want to average over a window to smooth things out
     window = 50
-    render_figure(data, window, 'epsilon', 'q_learning_by_epsilon')
+    render_figure(data, window, 'epsilon', 'by_epsilon')
 
     rolling_window = 25
 
@@ -258,6 +210,6 @@ if __name__ == '__main__':
 
     explore = False
     if explore:
-        generate_video(env.spec.id, EGreedyPolicy(q, epsilon), num_episodes)
+        generate_video(env.spec.id, EGreedyPolicy(q, epsilon).action, num_episodes, NAME)
     else:
-        generate_video(env.spec.id, GreedyPolicy(q), num_episodes)
+        generate_video(env.spec.id, GreedyPolicy(q).action, num_episodes, NAME)

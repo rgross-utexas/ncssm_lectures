@@ -34,11 +34,13 @@ This is ***SUPER*** CPU intensive and, depending on your setup, could take a few
 
 `python ./reinforce.py`
 
-This also produces Tensorboard metrics, so start up Tensorboard a terminal that has the Conda environment activated:
+This also produces Tensorboard metrics, so start up Tensorboard in a terminal that has the Conda environment activated:
 
 `tensorboard --logdir=output/tb`
 
 Now, go to `http://localhost:6006/` in your browser to watch the metrics!
+
+Additionally `reinforce.py` reads it's configuration from `settings.yaml`. This settings file contains named environments and hyperparameters, so that you can control what runs and how without changing any code. 
 
 ## Useful Links
 
@@ -61,19 +63,7 @@ Now, go to `http://localhost:6006/` in your browser to watch the metrics!
 
 - Gyms - <https://gymnasium.farama.org/>
   - <https://gymnasium.farama.org/environments/toy_text/cliff_walking/>
-  - https://gymnasium.farama.org/environments/box2d/lunar_lander/
-
-## Creating your Python Conda Environment
-
-### Install Conda
-
-<https://docs.anaconda.com/miniconda/install/>
-
-
-```
-curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh
-bash ./Miniconda3-latest-MacOSX-x86_64.sh
-rm Miniconda3-latest-MacOSX-x86_64.sh
-```
-
-`conda env create -f environment.yaml`
+  - Discrete actions spaces that will work with this implementation of REINFORCE
+    - https://gymnasium.farama.org/environments/box2d/lunar_lander/
+    - https://gymnasium.farama.org/environments/classic_control/cart_pole/
+    - https://gymnasium.farama.org/environments/classic_control/acrobot/

@@ -2,30 +2,30 @@ default:
 reinforce:
   output_base_dir: "output"
   envs:
-    # -
-    #   # https://gymnasium.farama.org/environments/classic_control/acrobot/
-    #   # "The reward threshold is -100"
-    #   env_spec_id: 'Acrobot-v1'
-    #   inner_dims: 256
-    #   dropout: 0.1
-    #   negative_slope: .01
-    #   num_episodes: 1000
-    #   lr: .0001 # this has a significant affect on the success of this environment! .0003 almost never learns!
-    #   gamma: .99999
-    #   max_lookahead: 1000 # this also is important: too small and it has trouble learning!
-    #   num_videos: 10
-    # -
-    #   # https://gymnasium.farama.org/environments/classic_control/cart_pole/
-    #   # "The threshold for rewards is 500 for v1"
-    #   env_spec_id: "CartPole-v1"
-    #   inner_dims: 256
-    #   dropout: .1
-    #   negative_slope: .01
-    #   num_episodes: 2000
-    #   lr: .0003
-    #   gamma: .99999
-    #   max_lookahead: 1000
-    #   num_videos: 20
+    -
+      # https://gymnasium.farama.org/environments/classic_control/acrobot/
+      # "The reward threshold is -100"
+      env_spec_id: 'Acrobot-v1'
+      inner_dims: 256
+      dropout: 0.1
+      negative_slope: .01
+      num_episodes: 1000
+      lr: .0001 # this has a significant affect on the success of this environment! .0003 almost never learns!
+      gamma: .99999
+      max_lookahead: 1000 # this also is important: too small and it has trouble learning!
+      num_videos: 10
+    -
+      # https://gymnasium.farama.org/environments/classic_control/cart_pole/
+      # "The threshold for rewards is 500 for v1"
+      env_spec_id: "CartPole-v1"
+      inner_dims: 256
+      dropout: .1
+      negative_slope: .01
+      num_episodes: 2000
+      lr: .0003
+      gamma: .99999
+      max_lookahead: 1000
+      num_videos: 20
     -
       # https://gymnasium.farama.org/environments/box2d/lunar_lander/
       # "An episode is considered a solution if it scores at least 200 points."

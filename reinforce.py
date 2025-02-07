@@ -37,7 +37,7 @@ NUMBER_OF_LOGS = 100
 # output base directory
 OUTPUT_BASE_DIR = settings.reinforce.output_base_dir
 
-# see if we can fina and use a gpu
+# see if we can find and use a gpu
 DEVICE = torch.device(
     'cuda' if torch.cuda.is_available() else
     'mps' if torch.backends.mps.is_available() else

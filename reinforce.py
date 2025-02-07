@@ -34,6 +34,19 @@ ROLLING_AVERAGE_LENGTH = 10
 # how many times to log the status during a run
 NUMBER_OF_LOGS = 100
 
+# output base directory
+OUTPUT_BASE_DIR = settings.reinforce.output_base_dir
+
+# see if we can fina and use a gpu
+DEVICE = torch.device(
+    'cuda' if torch.cuda.is_available() else
+    'mps' if torch.backends.mps.is_available() else
+    'cpu'
+)
+# this code runs slower on mps, so just use cpu
+DEVICE = 'cpu'
+logger.info(f'{DEVICE=}')
+
 class PolicyNetwork(nn.Module):
     """
     Simple, fully connected NeuralNetwork with a single hidden layer. The input features
@@ -63,23 +76,36 @@ class PolicyNetwork(nn.Module):
         # create the simple fully connected net
         self.net = nn.Sequential(*layers)
 
+        # if you don't care about the dropouts and want this to be more concise
+        # self.net = nn.Sequential([
+        #     nn.Linear(input_dims, hidden_dims),
+        #     nn.LeakyReLU(negative_slope),
+        #     nn.Linear(hidden_dims, hidden_dims),
+        #     nn.LeakyReLU(negative_slope),
+        #     nn.Linear(hidden_dims, output_dims)
+        # ])
+
+
     def forward(self: nn.Module, state: np.ndarray) -> torch.Tensor:
-        return self.net(state)
+        return self.net(torch.tensor(state, device=DEVICE, dtype=torch.float32))
 
     def get_action_log_prob(self: nn.Module, state: np.ndarray) -> Tuple[int, torch.Tensor]:
+        """
+        Helper method specific to RL that samples an action from the neural network based on
+        a given state, also returning log-probability for the given action.
+        """
 
         # get the current action probability distribution for the given state
         state = torch.from_numpy(state).float().unsqueeze(0)
         probs = F.softmax(self.forward(Variable(state)), dim=1)
 
         # sample a random action from the state-action probability distribution
-        sampled_action = np.random.choice(self.output_dims, p=np.squeeze(probs.detach().numpy()))
+        sampled_action = np.random.choice(self.output_dims, p=np.squeeze(probs.detach().cpu().numpy()))
         log_prob = torch.log(probs.squeeze(0)[sampled_action])
 
         return sampled_action, log_prob
 
 
-# TODO: Add unit tests for this!
 def discount_rewards(rewards: List[float], gamma: float, max_lookahead: int) -> torch.Tensor:
 
     # create the powers once outside the loop
@@ -101,7 +127,7 @@ def discount_rewards(rewards: List[float], gamma: float, max_lookahead: int) -> 
     # standardize the discounted rewards, ensuring that we don't have division by 0
     discounted_rewards = (discounted_rewards - np.mean(discounted_rewards)) / (np.std(discounted_rewards) + 1e-12)
 
-    return torch.tensor(discounted_rewards)
+    return torch.tensor(discounted_rewards, device=DEVICE, dtype=torch.float32)
 
 
 def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[torch.Tensor],
@@ -119,7 +145,7 @@ def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[to
     # calculate the gradients
     policy_gradients = []
     for log_prob, g in zip(log_probs, discounted_rewards):
-        policy_gradients.append(-log_prob * g)
+        policy_gradients.append(torch.mul(-log_prob, g))
 
     policy_gradient = torch.stack(policy_gradients).sum()
 
@@ -128,24 +154,6 @@ def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[to
 
     # take a step with the optimizer
     optimizer.step()
-
-
-# TODO: Refactor this to make it useful or just remove it
-def plot_data(num_steps: List[int], avg_steps: List[float],
-              episode: int, env: Env, total_reward: float) -> None:
-    """
-    Create a plot of the number of steps and average number of steps per episode,
-    and write it to file.
-    """
-
-    # plot simple plot of the step data and save to file
-    plt.plot(num_steps)
-    plt.plot(avg_steps)
-    plt.xlabel('Episode')
-    plt.xlabel('Steps')
-    Path(f'output/images/{NAME}').mkdir(parents=True, exist_ok=True)
-    plt.savefig(f'output/images/{NAME}/{env.spec.id}_{get_datetime_str()}_{episode + 1}_episodes_{int(total_reward)}_reward.png')
-    plt.clf()
 
 
 def run(**kwargs: Dict) -> None:
@@ -165,8 +173,8 @@ def run(**kwargs: Dict) -> None:
     env = gym.make(env_spec_id)
 
     # initialize tensorboard
-    Path(f'output/tb/{NAME}').mkdir(parents=True, exist_ok=True)
-    tb_id = f"output/tb/{NAME}/{env.spec.id}_{get_datetime_str()}_{num_episodes}_{inner_dims}_{lr}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{get_datetime_str()}"
+    Path(f'{OUTPUT_BASE_DIR}/tb/{NAME}').mkdir(parents=True, exist_ok=True)
+    tb_id = f"{OUTPUT_BASE_DIR}/tb/{NAME}/{env.spec.id}_{get_datetime_str()}_{num_episodes}_{inner_dims}_{lr}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{get_datetime_str()}"
     tb_logger = SummaryWriter(tb_id, flush_secs=5)
 
     # get number of actions from gym action space
@@ -177,15 +185,11 @@ def run(**kwargs: Dict) -> None:
     n_states = len(state)
 
     # init the pytorch pieces
-    policy_net = PolicyNetwork(n_states, n_actions, inner_dims, dropout, negative_slope)
+    policy_net = PolicyNetwork(n_states, n_actions, inner_dims, dropout, negative_slope).to(DEVICE)
     optimizer = Adam(policy_net.parameters(), lr=lr)
 
-    num_steps = []
-    avg_steps = []
-    rewards_sum = []
-
     # keep an absolute step counter for tensorboard metrics
-    counter = 0
+    step_counter = 0
     for episode in tqdm(range(num_episodes), unit='episodes'):
 
         # init the environment and get it's current state
@@ -214,38 +218,29 @@ def run(**kwargs: Dict) -> None:
                 # update the policy based on the rewards and log probabilities of the actions
                 update_policy(optimizer, rewards, log_probs, gamma, max_lookahead)
 
-                # record the step and reward data for metric reporting
-                num_steps.append(step)
-                avg_steps.append(np.mean(num_steps[-ROLLING_AVERAGE_LENGTH:]))
-                rewards_sum.append(np.sum(rewards))
-
                 # episode indexed tensorboard metrics
-                tb_logger.add_scalar('e_rewards_sum', rewards_sum[-1], global_step=episode)
-                tb_logger.add_scalar('e_num_steps', num_steps[-1], global_step=episode)
+                tb_logger.add_scalar('e_rewards_sum', np.sum(rewards), global_step=episode)
+                tb_logger.add_scalar('e_num_steps', step, global_step=episode)
 
                 # log information every NUMBER_OF_LOGS episodes
                 if (episode + 1) % (num_episodes//NUMBER_OF_LOGS) == 0:
-                    logger.info(f"episode: {episode + 1}, reward: {np.round(np.sum(rewards), decimals=3)}, "
-                                f"length: {step}, average length: {avg_steps[-1]}")
+                    logger.info(f"episode: {episode + 1}, reward: {np.round(np.sum(rewards), decimals=3)}")
 
                 # from time to time, generate a video
                 if (episode + 1) % (num_episodes//num_videos) == 0:
-                    generate_video(env.spec.id, policy_net.get_action_log_prob, episode, NAME)
+                    generate_video(env.spec.id, policy_net.get_action_log_prob, episode, NAME, output_base_dir=OUTPUT_BASE_DIR)
 
                 break
 
-            # counter indexed tensorboard metrics
-            tb_logger.add_scalar('log_prob', log_prob, global_step=counter)
-            tb_logger.add_scalar('prob', torch.exp(log_prob), global_step=counter)
-            tb_logger.add_scalar('reward', reward, global_step=counter)
+            # step counter indexed tensorboard metrics
+            tb_logger.add_scalar('log_prob', log_prob, global_step=step_counter)
+            tb_logger.add_scalar('prob', torch.exp(log_prob), global_step=step_counter)
+            tb_logger.add_scalar('reward', reward, global_step=step_counter)
 
-            counter += 1
+            step_counter += 1
 
             # update the state
             state = new_state
-
-    # plot the step data so we can see how we did
-    plot_data(num_steps, avg_steps, episode, env, rewards_sum[-1])
 
 
 def parse_args() -> argparse.Namespace:

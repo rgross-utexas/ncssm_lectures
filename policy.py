@@ -119,7 +119,7 @@ class EGreedyPolicy(Policy):
             if isinstance(state, tuple):
                 state = state[0]
 
-            # chooe the most probably action for the given state
+            # choose the most probably action for the given state
             probs = self.p[state]
             return int(np.random.choice(np.flatnonzero(probs == probs.max())))
 

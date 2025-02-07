@@ -44,7 +44,13 @@ def show_mps() -> None:
         print ("MPS device not found.")
 
 
-def generate_video(env_spec_id: str, policy_fn, episode: int, name: str) -> None:
+def generate_video(
+        env_spec_id: str,
+        policy_fn,
+        episode: int,
+        name: str,
+        fps: int = 30,
+        output_base_dir: str = 'output') -> None:
     """
     Generate an mp4 video for the given policy, and write it to file. This is a fun way
     to see how the algoirthm is doing.
@@ -52,7 +58,7 @@ def generate_video(env_spec_id: str, policy_fn, episode: int, name: str) -> None
 
     # render episodes based on the trained policy
     env = gym.make(env_spec_id, render_mode='rgb_array')
-    env.metadata['render_fps'] = 120
+    env.metadata['render_fps'] = fps
 
     # record the frames so we can create a video
     frames = []
@@ -76,10 +82,9 @@ def generate_video(env_spec_id: str, policy_fn, episode: int, name: str) -> None
         state = new_state
 
     np_frames = np.array(frames)
-    Path(f'output/images/{name}').mkdir(parents=True, exist_ok=True)
-    filename = f'output/images/{name}/{env.spec.id}_{get_datetime_str()}_{episode + 1}_episodes_{int(total_reward)}_reward.mp4'
+    Path(f'{output_base_dir}/images/{name}').mkdir(parents=True, exist_ok=True)
+    filename = f'{output_base_dir}/images/{name}/{env.spec.id}_{get_datetime_str()}_{episode + 1}_episodes_{int(total_reward)}_reward.mp4'
 
-    fps = 30
     height = np_frames.shape[2]
     width = np_frames.shape[1]
 

@@ -90,6 +90,7 @@ def q_learning(
         # currrent policy
         if render_video & ((episode + 1) % (num_episodes//num_videos) == 0):
             generate_video(env.spec.id, pi.action, episode, NAME)
+
     return q, episode_rewards, episode_lengths
 
 
@@ -160,7 +161,7 @@ if __name__ == '__main__':
     num_episodes = 200
 
     # initial q value to some random values
-    init_q = np.random.normal(size=(env.observation_space.n, env.action_space.n))
+    init_q = np.zeros(shape=(env.observation_space.n, env.action_space.n))
 
     # dictionary to stash the data
     data = {}
@@ -200,7 +201,7 @@ if __name__ == '__main__':
         epsilon=epsilon,
         num_episodes=num_episodes,
         num_videos=num_videos,
-        init_q=np.random.normal(size=(env.observation_space.n, env.action_space.n)),
+        init_q=np.zeros(shape=(env.observation_space.n, env.action_space.n)),
         gamma=gamma,
         render_video=True
     )

@@ -10,13 +10,12 @@ from typing import Dict, List, Tuple
 
 import gymnasium as gym
 from gymnasium import Env
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from torch.optim import Adam, Optimizer
+from torch.optim import Adam, Optimizer, lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -27,9 +26,6 @@ from utils import get_datetime_str, generate_video
 NAME = 'reinforce'
 
 logger = get_logger(NAME)
-
-# for smoothing out the data that displayed data
-ROLLING_AVERAGE_LENGTH = 10
 
 # how many times to log the status during a run
 NUMBER_OF_LOGS = 100
@@ -76,16 +72,6 @@ class PolicyNetwork(nn.Module):
         # create the simple fully connected net
         self.net = nn.Sequential(*layers)
 
-        # if you don't care about the dropouts and want this to be more concise
-        # self.net = nn.Sequential([
-        #     nn.Linear(input_dims, hidden_dims),
-        #     nn.LeakyReLU(negative_slope),
-        #     nn.Linear(hidden_dims, hidden_dims),
-        #     nn.LeakyReLU(negative_slope),
-        #     nn.Linear(hidden_dims, output_dims)
-        # ])
-
-
     def forward(self: nn.Module, state: np.ndarray) -> torch.Tensor:
         return self.net(torch.tensor(state, device=DEVICE, dtype=torch.float32))
 
@@ -130,8 +116,14 @@ def discount_rewards(rewards: List[float], gamma: float, max_lookahead: int) -> 
     return torch.tensor(discounted_rewards, device=DEVICE, dtype=torch.float32)
 
 
-def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[torch.Tensor],
-                  gamma: float = .99, max_lookahead: int = 100) -> None:
+def update_policy(
+    optimizer: Optimizer,
+    scheduler: lr_scheduler.LRScheduler,
+    rewards: List[float],
+    log_probs: List[torch.Tensor],
+    gamma: float,
+    max_lookahead: int
+) -> None:
     """
     Updates the policy net.
     """
@@ -154,6 +146,7 @@ def update_policy(optimizer: Optimizer, rewards: List[float], log_probs: List[to
 
     # take a step with the optimizer
     optimizer.step()
+    scheduler.step()
 
 
 def run(**kwargs: Dict) -> None:
@@ -165,16 +158,18 @@ def run(**kwargs: Dict) -> None:
     negative_slope = kwargs['negative_slope']
     num_episodes = kwargs['num_episodes']
     lr = kwargs['lr']
+    lr_start_factor = kwargs['lr_start_factor']
+    lr_end_factor = kwargs['lr_end_factor']
     gamma = kwargs['gamma']
     max_lookahead = kwargs['max_lookahead']
     num_videos = kwargs['num_videos']
 
     # intialize the gym environment that we are using
-    env = gym.make(env_spec_id)
+    env: Env = gym.make(env_spec_id)
 
     # initialize tensorboard
     Path(f'{OUTPUT_BASE_DIR}/tb/{NAME}').mkdir(parents=True, exist_ok=True)
-    tb_id = f"{OUTPUT_BASE_DIR}/tb/{NAME}/{env.spec.id}_{get_datetime_str()}_{num_episodes}_{inner_dims}_{lr}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{get_datetime_str()}"
+    tb_id = f"{OUTPUT_BASE_DIR}/tb/{NAME}/{env.spec.id}_{get_datetime_str()}_{num_episodes}_{inner_dims}_{lr}_{lr_start_factor}_{lr_end_factor}_{gamma}_{max_lookahead}_{dropout}_{negative_slope}_{get_datetime_str()}"
     tb_logger = SummaryWriter(tb_id, flush_secs=5)
 
     # get number of actions from gym action space
@@ -187,6 +182,9 @@ def run(**kwargs: Dict) -> None:
     # init the pytorch pieces
     policy_net = PolicyNetwork(n_states, n_actions, inner_dims, dropout, negative_slope).to(DEVICE)
     optimizer = Adam(policy_net.parameters(), lr=lr)
+
+    # add a LR scheduler to allow the LR to get smaller over time to eke out a bit more performance
+    scheduler = lr_scheduler.LinearLR(optimizer, start_factor=lr_start_factor, end_factor=lr_end_factor, total_iters=num_episodes)
 
     # keep an absolute step counter for tensorboard metrics
     step_counter = 0
@@ -207,7 +205,7 @@ def run(**kwargs: Dict) -> None:
             # take a step with the action
             new_state, reward, terminated, truncated, _ = env.step(action)
 
-            # save the values for updating the policy
+            # save these values for updating the policy
             log_probs.append(log_prob)
             rewards.append(reward)
 
@@ -216,11 +214,12 @@ def run(**kwargs: Dict) -> None:
             if terminated or truncated:
 
                 # update the policy based on the rewards and log probabilities of the actions
-                update_policy(optimizer, rewards, log_probs, gamma, max_lookahead)
+                update_policy(optimizer, scheduler, rewards, log_probs, gamma, max_lookahead)
 
                 # episode indexed tensorboard metrics
                 tb_logger.add_scalar('e_rewards_sum', np.sum(rewards), global_step=episode)
                 tb_logger.add_scalar('e_num_steps', step, global_step=episode)
+                tb_logger.add_scalar('e_lr', scheduler.get_last_lr()[0], global_step=episode)
 
                 # log information every NUMBER_OF_LOGS episodes
                 if (episode + 1) % (num_episodes//NUMBER_OF_LOGS) == 0:

@@ -77,7 +77,7 @@ class PolicyNetwork(nn.Module):
 
     def get_action_log_prob(self: nn.Module, state: np.ndarray) -> Tuple[int, torch.Tensor]:
         """
-        Helper method specific to RL that samples an action from the neural network based on
+        Helper method specific for RL that samples an action from the neural network based on
         a given state, also returning log-probability for the given action.
         """
 
@@ -92,7 +92,11 @@ class PolicyNetwork(nn.Module):
         return sampled_action, log_prob
 
 
-def discount_rewards(rewards: List[float], gamma: float, max_lookahead: int) -> torch.Tensor:
+def discount_rewards(
+    rewards: List[float],
+    gamma: float,
+    max_lookahead: int
+) -> torch.Tensor:
 
     # create the powers once outside the loop
     g_powers = np.power(gamma, np.arange(min(len(rewards) - 1, max_lookahead)))
